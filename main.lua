@@ -3,25 +3,25 @@ local sti = require "sti"
 function love.load()
 
     -- only two colors for bw game jam
-    dark_color = { r = 0, g = 0, b = 0}
+    dark_color = { r = 59/255, g = 11/255, b = 51/255}
     light_color = { r = 1, g = 1, b = 1 }
 
     --love.graphics.setBackgroundColor(light_color.r,light_color.g,light_color.b)
     --love.keyboard.setKeyRepeat(false) -- uncomment for toggling direction instead of on/off dir
 
     -- properties that will remain constant
-    start_length = 50
+    start_length = 100
     start_x = 30
     start_y = 30
-    normal_move_rate = 0.02 
-    fast_turn_move_rate = 0.005 -- min speed (happens during turning)
+    normal_move_rate = 30
+    fast_turn_move_rate = 40 -- min speed (happens during turning)
     move_rate = normal_move_rate -- snake speed .. smaller number is faster
-    dir_change_rate = 0.14 -- snake turn speed
+    dir_change_rate = 3/start_length -- snake turn speed
     snake_size = 6
     collision_size = 1 -- give some wiggle room
     knockback_amt = .5 -- how far player gets pushed back after hitting wall
 
-    max_rewind_amount = 20
+    max_rewind_amount = start_length/2
 
     collided_object_center = {x = 0,y = 0}
 
@@ -59,11 +59,11 @@ function initSnakePoints()
             x = tx, y = ty
         })
 
-        if i < max_rewind_amount then
-            table.insert(oldSnakePoints,1, {
-                x = tx, y = ty
-            })
-        end
+        -- if i < max_rewind_amount then
+        --     table.insert(oldSnakePoints,1, {
+        --         x = tx, y = ty
+        --     })
+        -- end
 
         tx = tx + 1
     end
@@ -77,58 +77,68 @@ function collision_handler(collided_fixture)
     return false -- tell the world queryBoundingBox function to stop its search
 end
 
+-- function player_move(dt)
+
+-- end
+
 function love.update(dt)
 
-    timer = timer + dt
-    if timer >= move_rate then
+    move_dir_radians = (move_dir_radians + dir_dir*dir_change_rate*dt*100) % (2*math.pi)
 
-        timer = 0
-        move_dir_radians = (move_dir_radians + dir_dir*dir_change_rate) % (2*math.pi)
-        dir_sum = dir_sum + dir_change_rate
+    local newX = snakePoints[1].x + math.cos(move_dir_radians)*move_rate*dt
+    local newY = snakePoints[1].y - math.sin(move_dir_radians)*move_rate*dt
 
-        local newX = (snakePoints[1].x + math.cos(move_dir_radians))
-        local newY = (snakePoints[1].y - math.sin(move_dir_radians))
+    player_did_collide = false
 
-        player_did_collide = false
+    -- check if player collides with wall
+    world:queryBoundingBox( newX*snake_size,newY*snake_size,newX*snake_size+2,newY*snake_size+2,collision_handler)
 
-        -- check if player collides with wall
-        world:queryBoundingBox( newX*snake_size,newY*snake_size,newX*snake_size+2,newY*snake_size+2,collision_handler)
+    if player_did_collide == true then --knockback
+        -- TODO: new idea = on wall collision, rewind player by half the length of the snake
+        --  need to store additional 'vanished' snake locations as backups so we can rewind
 
-        if player_did_collide == true then --knockback
-
-            -- TODO: new idea = on wall collision, rewind player by half the length of the snake
-            --  need to store additional 'vanished' snake locations as backups so we can rewind
-            yjump = (newY*snake_size - collided_object_center.y) * knockback_amt
-            xjump = (newX*snake_size - collided_object_center.x) * knockback_amt
-            newX = newX + xjump
-            newY = newY + yjump
+        for i = 1,max_rewind_amount do
+            table.remove(snakePoints,1)
+            table.insert(snakePoints,#snakePoints,oldSnakePoints[i])
         end
 
-        table.insert(snakePoints,1, {
-            x = newX, y = newY
-        })
+        newX = snakePoints[1].x
+        newY = snakePoints[1].y
 
-        oldVal = table.remove(snakePoints) -- remove last element
-        table.insert(oldSnakePoints,1,oldVal)
+        -- yjump = (newY*snake_size - collided_object_center.y) * knockback_amt
+        -- xjump = (newX*snake_size - collided_object_center.x) * knockback_amt
+        -- newX = newX + xjump
+        -- newY = newY + yjump
+    end
+
+    table.insert(snakePoints,1, {
+        x = newX, y = newY
+    })
+
+    -- add this last element to oldSnakePoints for rewind feature
+    oldVal = table.remove(snakePoints) -- remove last element
+    table.insert(oldSnakePoints,1,oldVal)
+
+    if #oldSnakePoints > max_rewind_amount then
         table.remove(oldSnakePoints)
+    end
 
-        --TODO: add this last element to oldSnakePoints for rewind feature
+    -- check for loops
+    dir_sum = dir_sum + dir_change_rate
+    if dir_sum > 2*math.pi then -- player did a full loop
+        print("loop!!!")
+        dir_sum = 0
+    elseif dir_sum > 4.7 then -- 3pi/2 loop.. speed up
+        move_rate = fast_turn_move_rate --move_rate + .2
+    end
 
-        if dir_sum > 2*math.pi then -- player did a full loop
-            print("loop!!!")
-            dir_sum = 0
-        -- elseif dir_sum > math.pi then -- half loop.. speed up
-        --     move_rate = fast_turn_move_rate
-        end
-
-        -- check for self-intersects with lead point
-        for idx, segment in ipairs(snakePoints) do
-            if idx > 2 then
-                if (math.abs(segment.x - snakePoints[1].x) < collision_size) and (math.abs(segment.y - snakePoints[1].y) < collision_size) then
-                    -- collision!!! game over...
-                    print('ow')
-                    newGame()
-                end
+    -- check for self-intersects with lead point
+    for idx, segment in ipairs(snakePoints) do
+        if idx > 5 then
+            if (math.abs(segment.x - snakePoints[1].x) < collision_size) and (math.abs(segment.y - snakePoints[1].y) < collision_size) then
+                -- collision!!! game over...
+                print('ow')
+                newGame()
             end
         end
     end
@@ -155,7 +165,9 @@ function love.keypressed(key, scancode, isrepeat)
     --     dir_dir = dir_dir * -1
     -- end
     if key == "escape" then
-        love.exit()
+        love.event.quit(0)
+    elseif key == "r" then
+        newGame()
     end
 end
 
@@ -170,8 +182,8 @@ function love.draw()
     love.graphics.setColor(light_color.r,light_color.g,light_color.b)
     map:draw(-tx,-ty)
 
-    love.graphics.setColor(1, 0, 0)
-	map:box2d_draw(-tx,-ty)
+    -- love.graphics.setColor(1, 0, 0)
+	-- map:box2d_draw(-tx,-ty)
 
     -- love.graphics.setColor(.28,.28,.28)
     -- love.graphics.rectangle(
@@ -190,20 +202,20 @@ function love.draw()
             'fill',
             segment.x * snake_size -tx,
             segment.y * snake_size -ty,
-            2
+            snake_size
         )
     end
 
     -- debug drawing
     love.graphics.setColor(0,1,0)
-    for idx, segment in ipairs(oldSnakePoints) do
-        love.graphics.circle(
-            'fill',
-            segment.x * snake_size -tx,
-            segment.y * snake_size -ty,
-            2
-        )
-    end
+    -- for idx, segment in ipairs(oldSnakePoints) do
+    --     love.graphics.circle(
+    --         'fill',
+    --         segment.x * snake_size -tx,
+    --         segment.y * snake_size -ty,
+    --         snake_size
+    --     )
+    -- end
 
     love.graphics.circle(
         'fill',
