@@ -148,8 +148,6 @@ function Map:groupAppendToList(layers, layer)
 	else
 		table.insert(layers, layer)
 	end
-
-	print(layer)
 end
 
 --- Load plugins
